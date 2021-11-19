@@ -21,8 +21,8 @@ int main(int argc, char* argv[]) {
 		return 0;
 	}
 
-	//print_objects(objects, nr_objects);
-	//printf("%d %d %d %d\n", nr_objects, capacity, nr_gen, nr_threads);
+	// print_objects(objects, nr_objects);
+	// printf("%d %d %d %d\n", nr_objects, capacity, nr_gen, nr_threads);
 
 	// run the genetic algorithm
 	run_genetic_algorithm(objects, nr_objects, nr_gen, capacity, nr_threads);

@@ -29,14 +29,29 @@ typedef struct _generation_info {
     int index;
     int capacity;
 	int nr_threads;
+	int square_length;
     int *nr_generations;
     int *nr_objects;
 	individual *current_generation;
 	individual *next_generation;
+	individual *prev_generation;
     sack_object *objects;
 	pthread_barrier_t *barrier;
 	pthread_t *threads;
 } generation_info;
+
+// structure passed as argument to
+// the thread for sorting
+typedef struct _info {
+	int id;
+	int count;
+	pthread_barrier_t *barrier;
+	individual **v;
+	individual **v_prev;
+	int square_length;
+	int actual_length;
+	int nr_threads;
+} info;
 
 int read_input(sack_object **objects, int *nr_objects, int *capacity,
                 int *nr_gen, int *nr_threads, int argc, char *argv[])
@@ -248,6 +263,97 @@ void compute_fitness_function_parallel(const sack_object *objects, individual *g
 	}
 }
 
+void merge_intervals(individual *source, int start, int mid, int end, individual *destination) {
+	int iA = start;
+	int iB = mid;
+	int i;//, flag;
+	for (i = start; i < end; i++) {
+		// aux = cmpfunc(&source[iA], &source[iB]);
+		// printf("%d\n", aux);
+		// flag = 0;
+		// if (source[iB].fitness - source[iA].fitness > 0) {
+		// 	flag = 1;
+		// } else if (source[iB].fitness - source[iA].fitness == 0) {
+		// 	int first_count = 0, second_count = 0;
+
+		// 	for (i = 0; i < source[iA].chromosome_length && i < source[iB].chromosome_length; ++i) {
+		// 		first_count += source[iA].chromosomes[i];
+		// 		second_count += source[iB].chromosomes[i];
+		// 	}
+
+		// 	int res = first_count - second_count; // increasing by number of objects in the sack
+		// 	if (res < 0) {
+		// 		flag = 1;
+		// 	} else if (res == 0) {
+		// 		if (source[iB].index - source[iA].index)
+		// 			flag = 1;
+		// 	}
+		// }
+
+		// source[iB].fitness < source[iA].fitness)) {
+		if (end == iB || (iA < mid && source[iB].fitness < source[iA].fitness)) {
+			memcpy(&destination[i], &source[iA], sizeof(individual));
+			iA++;
+		} else {
+			memcpy(&destination[i], &source[iB], sizeof(individual));
+			iB++;
+		}
+	}
+}
+
+
+void mergesort_parallel(info *info_ms) {
+	int thread_id = info_ms->id;
+	int actual_length = info_ms->actual_length;
+	int square_length = info_ms->square_length;
+
+	individual **vNew = info_ms->v_prev;
+	individual **v = info_ms->v;
+	int P = info_ms->nr_threads;
+
+	int start_index, end_index;
+	int start_local, end_local;
+	int width;
+
+	individual **aux = malloc(actual_length * sizeof(individual));
+
+	pthread_barrier_t *barrier = info_ms->barrier;
+	
+	// we advance with the width of the vectors
+	// that we are merging
+	pthread_barrier_wait(barrier);
+	for (width = 1; width < actual_length; width = 2 * width) {
+		start_index = thread_id * (double) square_length / P;
+		end_index = (thread_id + 1) * (double) square_length / P;
+
+		start_local = (start_index / (2 * width)) * (2 * width);
+		if (square_length > (end_index / (2 * width)) * (2 * width)) {
+			end_local = (end_index / (2 * width)) * (2 * width);
+		} else {
+			end_local = square_length;
+		}
+
+		for (int i = start_local; i < end_local; i = i + 2 * width) {
+			if (i + 2 * width > actual_length && i + width > actual_length) {
+				merge_intervals(*v, i, actual_length, actual_length, *vNew);
+			} else if (i + 2 * width > actual_length && i + width <= actual_length) {
+				merge_intervals(*v, i, i + width, actual_length, *vNew);
+			} else {
+				merge_intervals(*v, i, i + width, i + 2 * width, *vNew);
+			}
+		}
+
+		pthread_barrier_wait(barrier);
+ 
+		*aux = *v;
+		*v = *vNew;
+		*vNew = *aux;
+
+		pthread_barrier_wait(barrier);
+	}
+	pthread_barrier_wait(barrier);
+}
+
 void run_parallel_algorithm(generation_info *gen_info)
 {
 	// we take the id of the thread and the number of the threads
@@ -317,26 +423,55 @@ void run_parallel_algorithm(generation_info *gen_info)
 	start_mut2 = start_mut1 + count2;
 	end_mut2 = end_mut1 + count2;
 
+	info *info_ms;
+	info_ms = malloc(sizeof(info));
+	info_ms->id = id;
+	info_ms->count = nr_objects;
+	info_ms->barrier = barrier;
+	info_ms->square_length = gen_info->square_length;
+	info_ms->actual_length = nr_objects;
+	info_ms->nr_threads = nr_threads;
+
+	individual *prev_generation = gen_info->prev_generation;
+	
+	info_ms->v = &current_generation;
+	info_ms->v_prev = &prev_generation;
+	// individual *aux_individual = malloc(sizeof(individual));
+	// aux_individual->chromosome_length = nr_objects;
+	// aux_individual->chromosomes = calloc(nr_objects, sizeof(int));
+
 	for (int k = 0; k < nr_generations; k++) {
 		cursor = 0;
+
+		// if (id == 0) {
+		// 	for (int i = 0; i < nr_objects; i++) {
+		// 		memcpy(&prev_generation[i], aux_individual, sizeof(individual));
+		// 		// prev_generation[i].chromosomes[i] = 1;
+		// 		// prev_generation[i].index = i;
+		// 		// prev_generation[i].fitness = 0;
+		// 	}
+		// }
 
 		compute_fitness_function_parallel(objects, current_generation, nr_objects, sack_capacity, id, nr_threads);
 		pthread_barrier_wait(barrier);
 
 		// do the sorting only on one thread
 		// let the thread be the first one
-		if (id == 0) {
-	 		qsort(current_generation, nr_objects, sizeof(individual), cmpfunc);
-		}
+		// if (id == 0) {
+	 	// 	qsort(current_generation, nr_objects, sizeof(individual), cmpfunc);
+		// }
+		mergesort_parallel(info_ms);
 		pthread_barrier_wait(barrier);
-
+		
 	 	// keep first 30% children (elite children selection)
+		// printf("de asta trece\n");
 	 	for (int i = start_sel; i < end_sel; i++) {
 	 		copy_individual(current_generation + i, next_generation + i);
 		}
 	 	cursor = count1;
 		pthread_barrier_wait(barrier);
 
+		//printf("de asta trece 1\n");
 	 	// mutate first 20% children with the first version of bit string mutation
 		for (int i = start_mut1; i < end_mut1; i++) {
 	 		copy_individual(current_generation + i, next_generation + cursor + i);
@@ -345,6 +480,7 @@ void run_parallel_algorithm(generation_info *gen_info)
 	 	cursor += count2;
 		pthread_barrier_wait(barrier);
 
+		//printf("de asta trece2\n");
 	 	// mutate next 20% children with the second version of bit string mutation
 		for (int i = start_mut2; i < end_mut2; i++) {
 			copy_individual(current_generation + i, next_generation + cursor + i - count2);
@@ -352,7 +488,8 @@ void run_parallel_algorithm(generation_info *gen_info)
 		}
 		cursor += count2;
 		pthread_barrier_wait(barrier);
-
+		
+		//printf("de asta trece3\n");
 	 	// crossover first 30% parents with one-point crossover
 		// (if there is an odd number of parents, the last one is kept as such)
 		count = nr_objects * 3 / 10;
@@ -362,7 +499,8 @@ void run_parallel_algorithm(generation_info *gen_info)
 		}
 
 		pthread_barrier_wait(barrier);
-
+		
+		//printf("de asta trece4\n");
 	 	for (int i = start; i < end; i += 2) {
 			if (i < count)
 			{
@@ -378,6 +516,7 @@ void run_parallel_algorithm(generation_info *gen_info)
 		current_generation = next_generation;
 		next_generation = tmp;
 
+		//printf("de asta trece5\n");
 		for (int i = start; i < end; ++i) {
 			current_generation[i].index = i;
 		}
@@ -421,6 +560,17 @@ void run_genetic_algorithm(sack_object *objects, int nr_objects, int nr_gen, int
 	current_generation = (individual*) calloc(nr_objects, sizeof(individual));
 	next_generation = (individual*) calloc(nr_objects, sizeof(individual));
 
+	// let's change N now
+	int res_pow = 1, square_length;
+	int count_pow = 0;
+	while (res_pow < nr_objects) {
+		count_pow++;
+		res_pow = pow(2, count_pow);
+	}
+	square_length = res_pow;
+
+	individual *prev_generation = malloc(nr_objects * sizeof(individual));
+
 	// declare the array of structures passed as arguments to the parallel function
 	generation_info info[nr_threads];
 	// create the threads and the structure that is
@@ -429,6 +579,7 @@ void run_genetic_algorithm(sack_object *objects, int nr_objects, int nr_gen, int
         info[i].index = i;
         info[i].nr_generations = nr_gen_aux;
         info[i].nr_objects = nr_objects_aux;
+		info[i].square_length = square_length;
         info[i].objects = objects;
         info[i].capacity = capacity;
 		info[i].nr_threads = nr_threads;
@@ -436,6 +587,7 @@ void run_genetic_algorithm(sack_object *objects, int nr_objects, int nr_gen, int
 		info[i].threads = threads;
 		info[i].current_generation = current_generation;
 		info[i].next_generation = next_generation;
+		info[i].prev_generation = prev_generation;
     }
 
 	for (int i = 0; i < nr_threads; i++) {
@@ -459,12 +611,12 @@ void run_genetic_algorithm(sack_object *objects, int nr_objects, int nr_gen, int
 	pthread_barrier_destroy(&barrier);
 
 	// free resources for old generation
-	free_generation(current_generation);
-	free_generation(next_generation);
+	// free_generation(current_generation);
+	// free_generation(next_generation);
 
 	// free resources
-	free(current_generation);
-	free(next_generation);
+	// free(current_generation);
+	// free(next_generation);
 
     pthread_exit(NULL);
 }
