@@ -207,6 +207,7 @@ void run_genetic_algorithm(const sack_object *objects, int object_count, int gen
 		compute_fitness_function(objects, current_generation, object_count, sack_capacity);
 		qsort(current_generation, object_count, sizeof(individual), cmpfunc);
 
+		// print_generation(current_generation, object_count);
 		// keep first 30% children (elite children selection)
 		count = object_count * 3 / 10;
 		for (int i = 0; i < count; ++i) {

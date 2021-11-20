@@ -17,11 +17,15 @@ typedef struct _sack_object {
 // the chromosomes are an array corresponding to each sack
 // object, in order, where 1 means that the object is in
 // the sack, 0 that it is not
+
+// I added the count member so that I can keep track of the
+// non-zero chromosomes
 typedef struct _individual {
 	int fitness;
 	int *chromosomes;
     int chromosome_length;
 	int index;
+	int count;
 } individual;
 
 // struct that is being passed as argument to the thread functin
@@ -53,6 +57,9 @@ typedef struct _info {
 	int nr_threads;
 } info;
 
+
+// the read input function
+// similar to the one given in the skel
 int read_input(sack_object **objects, int *nr_objects, int *capacity,
                 int *nr_gen, int *nr_threads, int argc, char *argv[])
 {
@@ -133,51 +140,8 @@ void print_generation(const individual *generation, int limit)
 	}
 }
 
-void compute_fitness_function(const sack_object *objects, individual *generation,
-                                int nr_objects, int capacity)
-{
-	int weight;
-	int profit;
-
-	for (int i = 0; i < nr_objects; ++i) {
-		weight = 0;
-		profit = 0;
-
-		for (int j = 0; j < generation[i].chromosome_length; ++j) {
-			if (generation[i].chromosomes[j]) {
-				weight += objects[j].weight;
-				profit += objects[j].profit;
-			}
-		}
-
-		generation[i].fitness = (weight <= capacity) ? profit : 0;
-	}
-}
-
-int cmpfunc(const void *a, const void *b)
-{
-	int i;
-	individual *first = (individual *) a;
-	individual *second = (individual *) b;
-
-	int res = second->fitness - first->fitness; // decreasing by fitness
-	if (res == 0) {
-		int first_count = 0, second_count = 0;
-
-		for (i = 0; i < first->chromosome_length && i < second->chromosome_length; ++i) {
-			first_count += first->chromosomes[i];
-			second_count += second->chromosomes[i];
-		}
-
-		res = first_count - second_count; // increasing by number of objects in the sack
-		if (res == 0) {
-			return second->index - first->index;
-		}
-	}
-
-	return res;
-}
-
+// mutate bit string 1 function - as implemented in the
+// skel given by the APD team
 void mutate_bit_string_1(const individual *ind, int generation_index)
 {
 	int i, mutation_size;
@@ -198,6 +162,8 @@ void mutate_bit_string_1(const individual *ind, int generation_index)
 	}
 }
 
+// mutate bit string 2 function - as implemented in the
+// skel given by the APD team
 void mutate_bit_string_2(const individual *ind, int generation_index)
 {
 	int step = 1 + generation_index % (ind->chromosome_length - 2);
@@ -208,6 +174,8 @@ void mutate_bit_string_2(const individual *ind, int generation_index)
 	}
 }
 
+// crossover function - as implemented in the
+// skel given by the APD team
 void crossover(individual *parent1, individual *child1, int generation_index)
 {
 	individual *parent2 = parent1 + 1;
@@ -221,11 +189,15 @@ void crossover(individual *parent1, individual *child1, int generation_index)
 	memcpy(child2->chromosomes + count, parent1->chromosomes + count, (parent1->chromosome_length - count) * sizeof(int));
 }
 
+// copy individual function as implemented in the skel received
+// from the APD team
 void copy_individual(const individual *from, const individual *to)
 {
 	memcpy(to->chromosomes, from->chromosomes, from->chromosome_length * sizeof(int));
 }
 
+// free generation function as implemented in the skel received
+// from the APD team
 void free_generation(individual *generation)
 {
 	int i;
@@ -237,11 +209,16 @@ void free_generation(individual *generation)
 	}
 }
 
+// the compute fitness function but i parallelized it
+// I added a count member in the individual structure
+// to keep track of the non-zero chromosomes in the individual
 void compute_fitness_function_parallel(const sack_object *objects, individual *generation,
 	int nr_objects, int sack_capacity, int id_thread, int nr_threads) {
 	int weight, profit;
 	int start, end;
+	int count;
 
+	// here I set the start and the end of the vector
 	start = id_thread * (double) nr_objects / nr_threads;
 	if ((id_thread + 1) * (double) nr_objects / nr_threads > nr_objects)
 		end = nr_objects;
@@ -251,49 +228,50 @@ void compute_fitness_function_parallel(const sack_object *objects, individual *g
 	for (int i = start; i < end; i++) {
 		weight = 0;
 		profit = 0;
+		count = 0;
 
 		for (int j = 0; j < generation[i].chromosome_length; ++j) {
 			if (generation[i].chromosomes[j]) {
 				weight += objects[j].weight;
 				profit += objects[j].profit;
+				count++;
 			}
 		}
-
+		generation[i].count = count;
 		generation[i].fitness = (weight <= sack_capacity) ? profit : 0;
 	}
 }
 
+// function that merges the intervals from mergesort
+// it is similar to the one implemented in the laboratory
 void merge_intervals(individual *source, int start, int mid, int end, individual *destination) {
 	int iA = start;
 	int iB = mid;
-	int i;//, flag;
+	int i;
 	for (i = start; i < end; i++) {
-		// aux = cmpfunc(&source[iA], &source[iB]);
-		// printf("%d\n", aux);
-		// flag = 0;
-		// if (source[iB].fitness - source[iA].fitness > 0) {
-		// 	flag = 1;
-		// } else if (source[iB].fitness - source[iA].fitness == 0) {
-		// 	int first_count = 0, second_count = 0;
-
-		// 	for (i = 0; i < source[iA].chromosome_length && i < source[iB].chromosome_length; ++i) {
-		// 		first_count += source[iA].chromosomes[i];
-		// 		second_count += source[iB].chromosomes[i];
-		// 	}
-
-		// 	int res = first_count - second_count; // increasing by number of objects in the sack
-		// 	if (res < 0) {
-		// 		flag = 1;
-		// 	} else if (res == 0) {
-		// 		if (source[iB].index - source[iA].index)
-		// 			flag = 1;
-		// 	}
-		// }
-
-		// source[iB].fitness < source[iA].fitness)) {
+		// here I implement the merging
+		// the conditions are taken from the compare function
+		// that was given as parameter to the qsort function
+		// in the skel received from the APD team
 		if (end == iB || (iA < mid && source[iB].fitness < source[iA].fitness)) {
 			memcpy(&destination[i], &source[iA], sizeof(individual));
 			iA++;
+		} else if (end == iB || (iA < mid && source[iB].fitness == source[iA].fitness)) {
+			if (source[iA].count < source[iB].count) {
+				memcpy(&destination[i], &source[iA], sizeof(individual));
+				iA++;
+			} else if (source[iA].count == source[iB].count) {
+				if (source[iB].index - source[iA].index) {
+					memcpy(&destination[i], &source[iA], sizeof(individual));
+					iA++;	
+				} else {
+					memcpy(&destination[i], &source[iB], sizeof(individual));
+					iB++;		
+				}
+			} else {
+				memcpy(&destination[i], &source[iB], sizeof(individual));
+				iB++;
+			}
 		} else {
 			memcpy(&destination[i], &source[iB], sizeof(individual));
 			iB++;
@@ -303,6 +281,7 @@ void merge_intervals(individual *source, int start, int mid, int end, individual
 
 
 void mergesort_parallel(info *info_ms) {
+	// getting the information nedeed from the structure
 	int thread_id = info_ms->id;
 	int actual_length = info_ms->actual_length;
 	int square_length = info_ms->square_length;
@@ -315,6 +294,8 @@ void mergesort_parallel(info *info_ms) {
 	int start_local, end_local;
 	int width;
 
+	// declaring an auxiliary vector for the swap between
+	// the vectors
 	individual **aux = malloc(actual_length * sizeof(individual));
 
 	pthread_barrier_t *barrier = info_ms->barrier;
@@ -322,10 +303,16 @@ void mergesort_parallel(info *info_ms) {
 	// we advance with the width of the vectors
 	// that we are merging
 	pthread_barrier_wait(barrier);
+	// here are the steps performed by the mergesort
+	// I gradually increase the width of the intervals which are merged
+	// this part is similar to the one at the laboratory
 	for (width = 1; width < actual_length; width = 2 * width) {
+		// here I compute the starting and ending indexes 
 		start_index = thread_id * (double) square_length / P;
 		end_index = (thread_id + 1) * (double) square_length / P;
-
+		// the the local index is greater than the squared length of
+		// the generation to be sorted, hten the end index (local)
+		// takes the value of this squared length
 		start_local = (start_index / (2 * width)) * (2 * width);
 		if (square_length > (end_index / (2 * width)) * (2 * width)) {
 			end_local = (end_index / (2 * width)) * (2 * width);
@@ -333,25 +320,40 @@ void mergesort_parallel(info *info_ms) {
 			end_local = square_length;
 		}
 
+		// here I iterate over the indexes which are specific to the thread
+		// with the id thread_id
 		for (int i = start_local; i < end_local; i = i + 2 * width) {
+			// I have 3 cases in which I call the function that merges the intervals
 			if (i + 2 * width > actual_length && i + width > actual_length) {
+				// This is the case in which the size of the two intervals that
+				// need to be merged ar actually overflowing, the size of the vector
+				// overall is smaller. The position of the mid is also greater than
+				// the actual size. This is why I set the mid and the end to be the
+				// actual size of the vector 
 				merge_intervals(*v, i, actual_length, actual_length, *vNew);
 			} else if (i + 2 * width > actual_length && i + width <= actual_length) {
+				// The second case is just like the case above, but only the size of the
+				// second interval is overflowing, the index of the mid is ok
 				merge_intervals(*v, i, i + width, actual_length, *vNew);
 			} else {
+				// here is the default case that has been treated in the laboratory as well
 				merge_intervals(*v, i, i + width, i + 2 * width, *vNew);
 			}
 		}
 
+		// these barrier wait calls are for assuring that
+		// all threads have finished execution of a part of code
+		// needed by all of them later
 		pthread_barrier_wait(barrier);
  
+		// here I interchange the vectors so that I
+		// get the result in v
 		*aux = *v;
 		*v = *vNew;
 		*vNew = *aux;
 
 		pthread_barrier_wait(barrier);
 	}
-	pthread_barrier_wait(barrier);
 }
 
 void run_parallel_algorithm(generation_info *gen_info)
@@ -382,6 +384,7 @@ void run_parallel_algorithm(generation_info *gen_info)
 	individual *current_generation = gen_info->current_generation;
 	individual *next_generation = gen_info->next_generation;
 
+	// init the current generation and the next generation
 	for (int i = start; i < end; i++) {
 		current_generation[i].fitness = 0;
 		current_generation[i].chromosomes = (int*) calloc(nr_objects, sizeof(int));
@@ -423,6 +426,8 @@ void run_parallel_algorithm(generation_info *gen_info)
 	start_mut2 = start_mut1 + count2;
 	end_mut2 = end_mut1 + count2;
 
+	// create the structure used as argument for the sort function
+	// (it helps each thread with the data accessible)
 	info *info_ms;
 	info_ms = malloc(sizeof(info));
 	info_ms->id = id;
@@ -436,43 +441,27 @@ void run_parallel_algorithm(generation_info *gen_info)
 	
 	info_ms->v = &current_generation;
 	info_ms->v_prev = &prev_generation;
-	// individual *aux_individual = malloc(sizeof(individual));
-	// aux_individual->chromosome_length = nr_objects;
-	// aux_individual->chromosomes = calloc(nr_objects, sizeof(int));
 
+	// iterate to construct the generations
 	for (int k = 0; k < nr_generations; k++) {
 		cursor = 0;
 
-		// if (id == 0) {
-		// 	for (int i = 0; i < nr_objects; i++) {
-		// 		memcpy(&prev_generation[i], aux_individual, sizeof(individual));
-		// 		// prev_generation[i].chromosomes[i] = 1;
-		// 		// prev_generation[i].index = i;
-		// 		// prev_generation[i].fitness = 0;
-		// 	}
-		// }
-
+		// compute the fitness
 		compute_fitness_function_parallel(objects, current_generation, nr_objects, sack_capacity, id, nr_threads);
+		
+		// perform the sort
 		pthread_barrier_wait(barrier);
-
-		// do the sorting only on one thread
-		// let the thread be the first one
-		// if (id == 0) {
-	 	// 	qsort(current_generation, nr_objects, sizeof(individual), cmpfunc);
-		// }
 		mergesort_parallel(info_ms);
 		pthread_barrier_wait(barrier);
 		
 	 	// keep first 30% children (elite children selection)
-		// printf("de asta trece\n");
-	 	for (int i = start_sel; i < end_sel; i++) {
+		for (int i = start_sel; i < end_sel; i++) {
 	 		copy_individual(current_generation + i, next_generation + i);
 		}
 	 	cursor = count1;
 		pthread_barrier_wait(barrier);
 
-		//printf("de asta trece 1\n");
-	 	// mutate first 20% children with the first version of bit string mutation
+		// mutate first 20% children with the first version of bit string mutation
 		for (int i = start_mut1; i < end_mut1; i++) {
 	 		copy_individual(current_generation + i, next_generation + cursor + i);
 	 		mutate_bit_string_1(next_generation + cursor + i, k);
@@ -480,8 +469,7 @@ void run_parallel_algorithm(generation_info *gen_info)
 	 	cursor += count2;
 		pthread_barrier_wait(barrier);
 
-		//printf("de asta trece2\n");
-	 	// mutate next 20% children with the second version of bit string mutation
+		// mutate next 20% children with the second version of bit string mutation
 		for (int i = start_mut2; i < end_mut2; i++) {
 			copy_individual(current_generation + i, next_generation + cursor + i - count2);
  			mutate_bit_string_2(next_generation + cursor + i - count2, k);
@@ -489,7 +477,6 @@ void run_parallel_algorithm(generation_info *gen_info)
 		cursor += count2;
 		pthread_barrier_wait(barrier);
 		
-		//printf("de asta trece3\n");
 	 	// crossover first 30% parents with one-point crossover
 		// (if there is an odd number of parents, the last one is kept as such)
 		count = nr_objects * 3 / 10;
@@ -498,9 +485,8 @@ void run_parallel_algorithm(generation_info *gen_info)
 			count--;
 		}
 
-		pthread_barrier_wait(barrier);
-		
-		//printf("de asta trece4\n");
+		// now I perform the crossover
+		pthread_barrier_wait(barrier);		
 	 	for (int i = start; i < end; i += 2) {
 			if (i < count)
 			{
@@ -516,12 +502,12 @@ void run_parallel_algorithm(generation_info *gen_info)
 		current_generation = next_generation;
 		next_generation = tmp;
 
-		//printf("de asta trece5\n");
 		for (int i = start; i < end; ++i) {
 			current_generation[i].index = i;
 		}
 		pthread_barrier_wait(barrier);
 
+		// print the fitness
 		if (id == 0) {
 			if (k % 5 == 0) {
 				print_best_fitness(current_generation);
@@ -531,10 +517,13 @@ void run_parallel_algorithm(generation_info *gen_info)
 
 	pthread_barrier_wait(barrier);
 	compute_fitness_function_parallel(objects, current_generation, nr_objects, sack_capacity, id, nr_threads);
-	if (id == 0) {
-		qsort(current_generation, nr_objects, sizeof(individual), cmpfunc);
+	// here I sort one last time and then I print the final result
+	// (the best firness)
+	pthread_barrier_wait(barrier);
+	mergesort_parallel(info_ms);
+	pthread_barrier_wait(barrier);
+	if (id == 0)
 		print_best_fitness(current_generation);
-	}
 }
 
 void run_genetic_algorithm(sack_object *objects, int nr_objects, int nr_gen, int capacity, int nr_threads)
@@ -611,12 +600,12 @@ void run_genetic_algorithm(sack_object *objects, int nr_objects, int nr_gen, int
 	pthread_barrier_destroy(&barrier);
 
 	// free resources for old generation
-	// free_generation(current_generation);
-	// free_generation(next_generation);
+	free_generation(current_generation);
+	free_generation(next_generation);
 
 	// free resources
-	// free(current_generation);
-	// free(next_generation);
+	free(current_generation);
+	free(next_generation);
 
     pthread_exit(NULL);
 }

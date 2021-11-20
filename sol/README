@@ -1,2 +1,72 @@
 Verna Dorian-Alexandru 334CC
 Tema 1 APD
+
+Dificultate: mediu - greu
+Timp de rezolvare:
+--> 6-7 ore -> paralelizat for-urile si rezolvat erori ce au mai aparut de-a lungul rezolvarii
+--> 14 ore -> paralelizarea sortarii si integrarea ei in algoritm
+
+In interiorul codului am pus si comentarii ajutatoare.
+
+In prima faza am incercat sa inteleg algoritmul dat in arhiva de tema (din schelet).
+Apoi am facut mici modificari pentru a putea sa citesc si numarul de thread-uri ca argument.
+
+Apoi am facut functia run_genetic_algorithm in care pornesc thread-urile, construiesc
+structura care serveste ca parametru functiei care se ruleaza in momentul in care se creaza
+thread-urile, apoi dau join tuturor thread-urilor si mai apoi distrug bariera si eliberez
+memoria (pe aceasta am initializat-o tot in aceasta functie).
+
+Functia apelata in momentul in care rulam thread-urile este run_parallel_algorithm in care
+am implementat initializarea generatiei curente, initializarea lui next generation (aceste
+initializari le-am si paralelizat), apoi am acel for in care iterez de-a lungul a mai multe
+generatii. Aici am paralelizat functia compute_fitness_function din schelet si am
+redenumit-o in compute_fitness_function_parallel.
+
+Am modificat structura individual pentru a adauga un camp count pentru a contoriza tot timpul
+numarul de cromozomi cu valoarea 1 din acesta. In acest fel, atunci cand am functia merge_intervals,
+adica functia de interclasare si o sa am doi indivizi cu acelasi fitness, nu o sa mai trebuiasca
+sa fac un for in comparare pentru a afla numarul de cromozomi 1 din fiecare individ, ci efectiv
+voi lua membrul structurii si il voi compara. Apoi am paralelizat for-urile in care apelez
+functiile mutate_bit_string_1, mutate_bit_string_2 si crossover. Am paralelizat si for-ul in care
+setez index-ul pentru current generation. Algoritmul este similar cu cel din schelet doar ca l-am
+paralelizat.
+
+Din punct de vedere al paralelizarii sortarii, am ales sa folosesc mergesort-ul din laborator,
+pe care l-am adaptat pentru a putea sorta vectori de orice lungime, nu doar de lungime care sa
+fie putere de 2. Am inceput prin a calcula cel mai mic numar care este putere a lui 2 care este
+mai mare decat lungimea generatiei mele (cati indivizi sunt in generatie). Aceasta variabila am
+denumit-o square_length si o folosesc pentru a calcula indexii in mergesort_parallel.
+mergesort_parallel este functia paralelizata pentru mergesort. Aceasta este practic functia de la
+laborator, doar ca calculul indexilor se face in functie de squared_length. Mai apoi, cand se
+apeleaza functia de interclasare intre intervale, atunci am implementat 3 cazuri, unul este cazul
+default de la laborator, iar celelalte doua trateza cazurile in care aceasta interclasare nu se face
+intre intervale de aceeasi lungime. Am pus niste comentarii ajutatoare si in cod. Se trateaza cazul
+in care pornind de la index-ul de start, indexul final si cel de mijloc (intersectia dintre
+intervale) sunt mai mari decat lungimea actuala a generatiei (actual_length), si cazul in care doar
+indexul final este mai mare decat lungimea actuala (index final == i + 2 * width unde i este
+index-ul de start al intervalului de lungime width cu care se vrea sa se faca interclasarea).
+i + width practic reprezinta indexul de inceput al celui de-al doilea interval. Functia pentru
+interclasare se numeste merge_intervals.
+
+Pentru toti indexii de start si de end pe care i-am calculat am folosit formulele invatate la
+laborator. In for-ul pentru crossover am iterat tot vectorul, nu doar primii 30% indivizi,
+(intervalul l-am impartit in mai multe intervale pt fiecare thread). La fel am facut si pt celelalte
+for-uri, dar acolo am facut doar pt bucata din vector care ma interesa. Nu era necesar sa fac
+neaparat acest lucru la crossover, dar pentru fisierul in0 nu imi mergea un caz si am generalizat
+iteratia pentru a-mi merge.
+
+Pe tot parcursul programului am folosit o bariera pe care o dadeam ca membru structurilor.
+Pentru functia de merge_parallel am trimis ca parametru o structura definita de mine de tipul info.
+Pentru functia run_parallel_algorithm am folosit structura generation_info pentru a trimite datele
+
+Sper ca nu am uitat nimic, ca surse de inspiratie am avut scheletul dat de echipa pt aceasta tema
+si laboratoarele, in special cel cu sortarea.
+
+Per total consider ca a fost o tema interesanta, nu am mai auzit niciodata de ideea de algoritmi
+genetici. De asemenea, eu zic ca am invatat mai bine cum sa sincronizez
+thread-urile.
+
+Felicitari pt ideea temei si keep up the good work!
+
+Verna Dorian-Alexandru
+334CC
